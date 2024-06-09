@@ -1,5 +1,5 @@
 use regex::Regex;
-use scraper::{element_ref::Select, Html, Node, Selector};
+use scraper::{element_ref::Select, ElementRef, Html, Node, Selector};
 use std::error::Error;
 
 // Define a struct to represent the Pokemon in the eventy
@@ -24,7 +24,7 @@ struct Event {
     title: String,
     release_dates: String,
     event_description: String,
-    pokemon: Option<Pokemon>,
+    pokemons_info: Vec<Pokemon>,
 }
 
 #[tokio::main]
@@ -101,14 +101,24 @@ fn process_event_data(events_titles: Select, events_info: Select) {
         let mut release_dates = String::new();
         // TODO Write parser for event_description
         let mut event_description: String = String::new();
-        let pokemon = Some(parse_pokemon_details(&info_element.html()));
+
+        let pokemon_table_selector = Selector::parse("table.eventpoke").unwrap();
+
+        let pokemon_tables = info_element.select(&pokemon_table_selector);
+        
+        let mut pokemons_info: Vec<Pokemon> = Vec::new();
+
+        for pokemon_table in pokemon_tables {
+            let pokemon_info: Pokemon = parse_pokemon_details(&pokemon_table);
+            pokemons_info.push(pokemon_info)
+        }
 
         // Create an Event struct with the extracted data
         let event = Event {
             title,
             release_dates,
             event_description,
-            pokemon,
+            pokemons_info,
         };
 
         println!("\tEvent: {:?}", event);
@@ -121,8 +131,7 @@ fn process_event_data(events_titles: Select, events_info: Select) {
     }
 }
 
-fn parse_pokemon_details(document: &String) -> Pokemon {
-    let event_data = Html::parse_document(&document);
+fn parse_pokemon_details(event_data: &ElementRef) -> Pokemon {
 
     // Define CSS selectors to select the pokemon information
     let name_selector = Selector::parse("td.pkmn a[href]").unwrap();
@@ -133,21 +142,23 @@ fn parse_pokemon_details(document: &String) -> Pokemon {
     let column_selector = Selector::parse("td.column").unwrap();
     let moves_selector = Selector::parse("table td a").unwrap();
 
+
+    // TODO The name can be a compound name, as in the case of “Roaring Moon”, we will have to look at what to do to recover the name properly.
     // Extract pokemon information
-    let name = if let Some(name) = get_element_attr_value(&event_data, &name_selector, "href") {
-        extract_pokemon_name(name)
+    let name = if let Some(name) = get_element_attr_value(event_data, &name_selector, "href") {
+        extract_pokemon_name(name) 
     } else {
         None
     };
-    let gender = extract_gender(&event_data, &gender_selector);
-    let level = get_nth_element_text(&event_data, &level_selector, 1);
-    let ot = get_sibling_text(&event_data, &detailhead_selector, 0); // TODO Pending
-    let id = get_sibling_text(&event_data, &detailhead_selector, 1); // TODO Pending
+    let gender = extract_gender(event_data, &gender_selector);
+    let level = get_nth_element_text(event_data, &level_selector, 1);
+    let ot = get_sibling_text(event_data, &detailhead_selector, 0); // TODO Pending
+    let id = get_sibling_text(event_data, &detailhead_selector, 1); // TODO Pending
                                                                      // let ability = get_sibling_text(&event_data, &detailhead_selector, 2); // TODO Pending, may be more than 1 ability
     let ability = Vec::new();
-    let tera_type = get_nth_element_text(&event_data, &tera_type_selector, 1); // TODO Pending
-    let hold_item = get_nth_element_text(&event_data, &tera_type_selector, 2); // TODO Pending
-    let nature = get_element_text(&event_data, &column_selector); // TODO Pending
+    let tera_type = get_nth_element_text(event_data, &tera_type_selector, 1); // TODO Pending
+    let hold_item = get_nth_element_text(event_data, &tera_type_selector, 2); // TODO Pending
+    let nature = get_element_text(event_data, &column_selector); // TODO Pending
     let moves = event_data
         .select(&moves_selector)
         .map(|move_elem| move_elem.text().collect::<String>())
@@ -170,7 +181,7 @@ fn parse_pokemon_details(document: &String) -> Pokemon {
     }
 }
 
-fn extract_gender(document: &Html, selector: &Selector) -> Option<String> {
+fn extract_gender(document: &ElementRef, selector: &Selector) -> Option<String> {
     let gender = document
         .select(&selector)
         .into_iter()
@@ -188,21 +199,21 @@ fn extract_gender(document: &Html, selector: &Selector) -> Option<String> {
         None
     }
 }
-fn get_element_text(document: &Html, selector: &Selector) -> Option<String> {
+fn get_element_text(document: &ElementRef, selector: &Selector) -> Option<String> {
     document
         .select(&selector)
         .next()
         .map(|element| element.text().collect::<String>())
 }
 
-fn get_element_attr_value(document: &Html, selector: &Selector, attr: &str) -> Option<String> {
+fn get_element_attr_value(document: &ElementRef, selector: &Selector, attr: &str) -> Option<String> {
     document
         .select(&selector)
         .next()
         .map(|element| element.attr(attr).unwrap_or_default().to_string())
 }
 
-fn get_sibling_text(document: &Html, selector: &Selector, index: usize) -> Option<String> {
+fn get_sibling_text(document: &ElementRef, selector: &Selector, index: usize) -> Option<String> {
     document.select(&selector).nth(index).and_then(|element| {
         element
             .next_sibling()
@@ -213,7 +224,7 @@ fn get_sibling_text(document: &Html, selector: &Selector, index: usize) -> Optio
     })
 }
 
-fn get_nth_element_text(document: &Html, selector: &Selector, n: usize) -> Option<String> {
+fn get_nth_element_text(document: &ElementRef, selector: &Selector, n: usize) -> Option<String> {
     document
         .select(&selector)
         .nth(n)
